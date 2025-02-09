@@ -7,27 +7,24 @@ from sklearn.model_selection import train_test_split
 
 class LaunchImpactModel:
     def __init__(self):
-        self.models = {}  # Dictionary to store pollutant models
-        self.feature_columns = None  # List of feature names
+        self.models = {}
+        self.feature_columns = None  
 
     def train(self, features: pd.DataFrame, targets: pd.DataFrame):
         """Train separate models for each pollutant and save feature columns."""
         self.models = {
-            'co2': RandomForestRegressor(),
-            'nox': RandomForestRegressor(),
-            'al2o3': RandomForestRegressor()
+            'co2': RandomForestRegressor(n_estimators=100, random_state=42),
+            'nox': RandomForestRegressor(n_estimators=100, random_state=42),
+            'al2o3': RandomForestRegressor(n_estimators=100, random_state=42)
         }
         
         for pollutant, model in self.models.items():
             model.fit(features, targets[pollutant])
 
-        # Save feature column names
         self.feature_columns = list(features.columns)
         
-        # Ensure model directory exists
         os.makedirs("models", exist_ok=True)
 
-        # Save trained models and feature columns
         for pollutant, model in self.models.items():
             joblib.dump(model, f"models/{pollutant}_model.joblib")
         
@@ -35,9 +32,8 @@ class LaunchImpactModel:
         print("✅ Model trained and saved successfully!")
 
     def load_models(self):
-        """Load trained models and feature columns."""
         try:
-            self.feature_columns = joblib.load("models/feature_columns.joblib")  # Load feature names
+            self.feature_columns = joblib.load("models/feature_columns.joblib") 
             for pollutant in ['co2', 'nox', 'al2o3']:
                 self.models[pollutant] = joblib.load(f"models/{pollutant}_model.joblib")
             print("✅ Models loaded successfully!")
@@ -46,22 +42,39 @@ class LaunchImpactModel:
             self.models = {}
             self.feature_columns = None
 
-    def predict(self, input_data: pd.DataFrame):
-        """Make predictions for given launch parameters."""
+    def predict(self, input_data: pd.DataFrame, duration_hours: int = 24):
         if not self.models:
             raise ValueError("Models are not loaded. Call load_models() first.")
         
         if self.feature_columns is None:
             raise ValueError("Feature columns are missing. Ensure the model was trained correctly.")
 
-        # Ensure input_data has the correct feature columns
         for col in self.feature_columns:
             if col not in input_data.columns:
-                input_data[col] = 0  # Fill missing columns with 0
+                input_data[col] = 0 
         
-        input_data = input_data[self.feature_columns]  # Ensure correct column order
+        input_data = input_data[self.feature_columns] 
 
-        # Predict emissions
-        predictions = {pollutant: self.models[pollutant].predict(input_data)[0] for pollutant in self.models}
-        return pd.DataFrame([predictions])  # Return as a DataFrame
+        time_series_predictions = []
+        
+        for hour in range(duration_hours):
+            decay_factor = np.exp(-hour / 12.0)  
+            predictions = {pollutant: self.models[pollutant].predict(input_data)[0] * decay_factor for pollutant in self.models}
+            time_series_predictions.append(predictions)
+        
+        return pd.DataFrame(time_series_predictions) 
 
+if __name__ == "__main__":
+    model = LaunchImpactModel()
+    model.load_models()
+    
+    example_input = pd.DataFrame({
+        'payload_mass': [5000],
+        'launch_site_lat': [28.5729],
+        'launch_site_lon': [-80.6490],
+        'rocket_type_Falcon 9': [1],
+        'fuel_type_RP-1/LOX': [1]
+    })
+    
+    predictions = model.predict(example_input)
+    print(predictions)
